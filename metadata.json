@@ -1,0 +1,6 @@
+{
+  "name": "Cội Nguồn - Gia Phả & Kỷ Niệm Gia Tộc",
+  "description": "Ứng dụng số hóa gia phả, phân quyền thành viên dòng họ, xuất bản bản tin kỷ niệm phóng sự gia tộc và quản lý cây phả hệ họ tộc truyền thống Việt Nam.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

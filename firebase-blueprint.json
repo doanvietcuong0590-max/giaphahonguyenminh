@@ -1,0 +1,78 @@
+{
+  "entities": {
+    "GenealogyTree": {
+      "collection": "trees",
+      "description": "Thông tin gia phả dòng họ",
+      "fields": {
+        "id": { "type": "string", "description": "Mã định danh gia phả" },
+        "name": { "type": "string", "description": "Tên dòng họ gia phả" },
+        "branch": { "type": "string", "description": "Chi phái / Nhánh" },
+        "origin": { "type": "string", "description": "Quê quán / Gốc tích" },
+        "ancestralHouseAddress": { "type": "string", "description": "Địa chỉ nhà thờ họ" },
+        "motto": { "type": "string", "description": "Tộc ước / Gia huấn" },
+        "establishedYear": { "type": "string", "description": "Năm khởi lập" },
+        "code": { "type": "string", "description": "Mã gia phả chia sẻ" },
+        "description": { "type": "string", "description": "Mô tả dòng họ" },
+        "avatarUrl": { "type": "string", "description": "Ảnh biểu trưng dòng họ" }
+      }
+    },
+    "Member": {
+      "collection": "members",
+      "description": "Thành viên trong phả hệ dòng họ",
+      "fields": {
+        "id": { "type": "string", "description": "Mã định danh thành viên" },
+        "fullName": { "type": "string", "description": "Họ và tên" },
+        "gender": { "type": "string", "description": "Giới tính" },
+        "generation": { "type": "number", "description": "Thế hệ / Đời thứ" },
+        "branch": { "type": "string", "description": "Chi nhánh" },
+        "isAlive": { "type": "boolean", "description": "Còn sống hay đã mất" },
+        "birthDate": { "type": "string", "description": "Ngày sinh" },
+        "deathDate": { "type": "string", "description": "Ngày mất" },
+        "spouseIds": { "type": "array", "description": "Danh sách mã phối ngẫu" },
+        "parentIds": { "type": "array", "description": "Danh sách mã phụ mẫu" },
+        "childIds": { "type": "array", "description": "Danh sách mã con cái" },
+        "phone": { "type": "string", "description": "Số điện thoại" },
+        "password": { "type": "string", "description": "Mật khẩu đăng nhập cá nhân" },
+        "role": { "type": "string", "description": "Vai trò trong hệ thống" },
+        "permissions": { "type": "map", "description": "Quyền hạn chi tiết" }
+      }
+    },
+    "MemoryPost": {
+      "collection": "memories",
+      "description": "Kỷ niệm, sự kiện, hương hỏa dòng họ",
+      "fields": {
+        "id": { "type": "string", "description": "Mã bài viết kỷ niệm" },
+        "title": { "type": "string", "description": "Tiêu đề kỷ niệm" },
+        "content": { "type": "string", "description": "Nội dung kỷ niệm" },
+        "authorName": { "type": "string", "description": "Tác giả" },
+        "date": { "type": "string", "description": "Ngày đăng / diễn ra" },
+        "images": { "type": "array", "description": "Danh sách ảnh kỷ niệm" }
+      }
+    },
+    "NotificationItem": {
+      "collection": "notifications",
+      "description": "Thông báo việc họ, ngày giỗ, họp họ",
+      "fields": {
+        "id": { "type": "string", "description": "Mã thông báo" },
+        "title": { "type": "string", "description": "Tiêu đề thông báo" },
+        "message": { "type": "string", "description": "Nội dung thông báo" },
+        "date": { "type": "string", "description": "Thời gian" },
+        "type": { "type": "string", "description": "Loại thông báo" },
+        "isRead": { "type": "boolean", "description": "Đã xem" }
+      }
+    },
+    "UserProfile": {
+      "collection": "users",
+      "description": "Hồ sơ người dùng hiện tại",
+      "fields": {
+        "id": { "type": "string", "description": "Mã người dùng" },
+        "fullName": { "type": "string", "description": "Họ và tên" },
+        "phone": { "type": "string", "description": "Số điện thoại" },
+        "email": { "type": "string", "description": "Email" },
+        "branch": { "type": "string", "description": "Chi phái" },
+        "role": { "type": "string", "description": "Vai trò" },
+        "password": { "type": "string", "description": "Mật khẩu cá nhân" }
+      }
+    }
+  }
+}
