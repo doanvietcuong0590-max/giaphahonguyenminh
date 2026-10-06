@@ -180,7 +180,16 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem('gia_pha_memories', JSON.stringify(memories));
-    } catch (e) {}
+    } catch (e) {
+      console.warn('LocalStorage đầy quota, tạo bản sao lưu an toàn cho memories:', e);
+      try {
+        const safeMemories = memories.map(m => ({
+          ...m,
+          images: (m.images || []).map(img => img.startsWith('data:') && img.length > 50000 ? img.slice(0, 500) : img)
+        }));
+        localStorage.setItem('gia_pha_memories', JSON.stringify(safeMemories));
+      } catch (err2) {}
+    }
   }, [memories]);
 
   useEffect(() => {
@@ -610,9 +619,9 @@ export default function App() {
   const handleAddComment = async (memoryId: string, content: string) => {
     const newComment = {
       id: 'c_' + Date.now(),
-      userName: currentUser.fullName,
-      userAvatar: currentUser.avatarUrl,
-      content,
+      userName: currentUser.fullName || 'Thành viên dòng họ',
+      userAvatar: currentUser.avatarUrl || '',
+      content: content.trim(),
       timestamp: 'Vừa xong',
     };
 
@@ -621,7 +630,7 @@ export default function App() {
       if (m.id === memoryId) {
         updatedItem = {
           ...m,
-          comments: [...m.comments, newComment],
+          comments: [...(m.comments || []), newComment],
         };
         return updatedItem;
       }
@@ -646,15 +655,21 @@ export default function App() {
       isLiked: false,
       comments: [],
     };
+
+    // Cập nhật ngay trên giao diện
     setMemories(prev => [newPost, ...prev]);
-    showToast('Bài viết tin tức đã được xuất bản tới cả dòng họ!');
+    showToast('Đang lưu bài viết lên Cloud Database...');
+
     try {
       setIsDbSyncing(true);
       await syncSaveMemory(newPost);
       setIsDbSyncing(false);
-    } catch (err) {
+      setIsDbConnected(true);
+      showToast('Đã lưu và xuất bản bài viết thành công lên toàn dòng họ!');
+    } catch (err: any) {
       setIsDbSyncing(false);
-      console.error('Lỗi lưu bài viết:', err);
+      console.error('Lỗi lưu bài viết lên Cloud:', err);
+      showToast('Đã lưu bài viết (sẽ tự động đồng bộ khi kết nối mạng ổn định)');
     }
   };
 

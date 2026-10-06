@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { 
   getFirestore, 
+  initializeFirestore,
   collection, 
   doc, 
   getDocs, 
@@ -16,19 +17,52 @@ import { GenealogyTree, Member, MemoryPost, NotificationItem, UserProfile } from
 
 // Cấu hình kết nối Firebase Firestore
 // Ưu tiên đọc từ import.meta.env (khi thiết lập trên Netlify/Vite), tự động fallback về cấu hình mặc định
+const env = (import.meta as any).env || {};
+
 export const firebaseConfig = {
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "planar-alchemy-g6ppv",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:606829565893:web:067170757e03c0556e1dac",
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyCGSU27c97uIPqD74QA0ngraNqJp3JuaoE",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "planar-alchemy-g6ppv.firebaseapp.com",
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_DATABASE_ID || "ai-studio-cingungiaphknimg-987b1f6d-8648-4cd2-aa16-aa27584fc3ad",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "planar-alchemy-g6ppv.firebasestorage.app",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "606829565893",
+  projectId: env.VITE_FIREBASE_PROJECT_ID || "planar-alchemy-g6ppv",
+  appId: env.VITE_FIREBASE_APP_ID || "1:606829565893:web:067170757e03c0556e1dac",
+  apiKey: env.VITE_FIREBASE_API_KEY || "AIzaSyCGSU27c97uIPqD74QA0ngraNqJp3JuaoE",
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || "planar-alchemy-g6ppv.firebaseapp.com",
+  firestoreDatabaseId: env.VITE_FIREBASE_DATABASE_ID || "ai-studio-cingungiaphknimg-987b1f6d-8648-4cd2-aa16-aa27584fc3ad",
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || "planar-alchemy-g6ppv.firebasestorage.app",
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || "606829565893",
 };
 
-// Khởi tạo Firebase App & Firestore với DatabaseId riêng
+// Khởi tạo Firebase App & Firestore với DatabaseId riêng và cấu hình ignoreUndefinedProperties
 export const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+let firestoreInstance;
+try {
+  firestoreInstance = initializeFirestore(app, {
+    ignoreUndefinedProperties: true,
+  }, firebaseConfig.firestoreDatabaseId);
+} catch (e) {
+  firestoreInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+}
+export const db = firestoreInstance;
+
+/**
+ * Làm sạch dữ liệu trước khi gửi lên Firestore:
+ * - Chuyển toàn bộ undefined thành chuỗi rỗng '' hoặc null để Firestore không từ chối document
+ * - Đảm bảo dữ liệu mảng, object luôn hợp lệ
+ */
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === undefined) return '' as unknown as T;
+  if (data === null || typeof data !== 'object') return data;
+  if (Array.isArray(data)) {
+    return data
+      .filter((item) => item !== undefined)
+      .map((item) => sanitizeForFirestore(item)) as unknown as T;
+  }
+  const clean: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data as Record<string, any>)) {
+    if (value !== undefined) {
+      clean[key] = sanitizeForFirestore(value);
+    }
+  }
+  return clean as T;
+}
 
 // Collection Names
 export const COLLECTIONS = {
@@ -56,24 +90,24 @@ export async function seedInitialDataIfEmpty(
       console.log('Database Firestore trống. Đang tự động lưu dữ liệu gia phả ban đầu lên Cloud...');
       
       // Lưu Tree
-      await setDoc(doc(db, COLLECTIONS.TREES, initialTree.id), initialTree);
+      await setDoc(doc(db, COLLECTIONS.TREES, initialTree.id), sanitizeForFirestore(initialTree));
 
       // Lưu User
-      await setDoc(doc(db, COLLECTIONS.USERS, initialUser.id), initialUser);
+      await setDoc(doc(db, COLLECTIONS.USERS, initialUser.id), sanitizeForFirestore(initialUser));
 
       // Lưu Members bằng Batch
       const batch = writeBatch(db);
       for (const m of initialMembers) {
         const mRef = doc(db, COLLECTIONS.MEMBERS, m.id);
-        batch.set(mRef, m);
+        batch.set(mRef, sanitizeForFirestore(m));
       }
       for (const memo of initialMemories) {
         const memoRef = doc(db, COLLECTIONS.MEMORIES, memo.id);
-        batch.set(memoRef, memo);
+        batch.set(memoRef, sanitizeForFirestore(memo));
       }
       for (const notif of initialNotifications) {
         const notifRef = doc(db, COLLECTIONS.NOTIFICATIONS, notif.id);
-        batch.set(notifRef, notif);
+        batch.set(notifRef, sanitizeForFirestore(notif));
       }
       await batch.commit();
       console.log('Đã nạp toàn bộ gia phả vào Cloud Database Firestore thành công!');
@@ -123,7 +157,7 @@ export function subscribeToMemories(onUpdate: (memories: MemoryPost[]) => void) 
       snap.forEach((doc) => {
         list.push(doc.data() as MemoryPost);
       });
-      list.sort((a, b) => (b.date > a.date ? 1 : -1));
+      list.sort((a, b) => ((b.date || '') > (a.date || '') ? 1 : -1));
       onUpdate(list);
     }
   }, (err) => {
@@ -160,7 +194,8 @@ export function subscribeToUserProfile(userId: string, onUpdate: (user: UserProf
 // 3. Các hàm ghi / cập nhật dữ liệu trực tiếp lên Firestore
 export async function syncSaveTree(tree: GenealogyTree): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.TREES, tree.id), tree, { merge: true });
+    const clean = sanitizeForFirestore(tree);
+    await setDoc(doc(db, COLLECTIONS.TREES, tree.id), clean, { merge: true });
   } catch (err) {
     console.error('Lỗi khi lưu Tree lên Firestore:', err);
     throw err;
@@ -169,7 +204,8 @@ export async function syncSaveTree(tree: GenealogyTree): Promise<void> {
 
 export async function syncSaveMember(member: Member): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.MEMBERS, member.id), member, { merge: true });
+    const clean = sanitizeForFirestore(member);
+    await setDoc(doc(db, COLLECTIONS.MEMBERS, member.id), clean, { merge: true });
   } catch (err) {
     console.error('Lỗi khi lưu Member lên Firestore:', err);
     throw err;
@@ -190,7 +226,7 @@ export async function syncBatchSaveMembers(members: Member[]): Promise<void> {
     const batch = writeBatch(db);
     for (const m of members) {
       const ref = doc(db, COLLECTIONS.MEMBERS, m.id);
-      batch.set(ref, m, { merge: true });
+      batch.set(ref, sanitizeForFirestore(m), { merge: true });
     }
     await batch.commit();
   } catch (err) {
@@ -201,7 +237,9 @@ export async function syncBatchSaveMembers(members: Member[]): Promise<void> {
 
 export async function syncSaveMemory(memory: MemoryPost): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.MEMORIES, memory.id), memory, { merge: true });
+    const clean = sanitizeForFirestore(memory);
+    await setDoc(doc(db, COLLECTIONS.MEMORIES, memory.id), clean, { merge: true });
+    console.log(`[Firestore] Đã lưu bài viết kỷ niệm thành công: ${memory.id}`);
   } catch (err) {
     console.error('Lỗi khi lưu Kỷ niệm lên Firestore:', err);
     throw err;
@@ -219,7 +257,8 @@ export async function syncDeleteMemory(memoryId: string): Promise<void> {
 
 export async function syncSaveNotification(notification: NotificationItem): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.NOTIFICATIONS, notification.id), notification, { merge: true });
+    const clean = sanitizeForFirestore(notification);
+    await setDoc(doc(db, COLLECTIONS.NOTIFICATIONS, notification.id), clean, { merge: true });
   } catch (err) {
     console.error('Lỗi khi lưu Thông báo lên Firestore:', err);
     throw err;
@@ -228,7 +267,8 @@ export async function syncSaveNotification(notification: NotificationItem): Prom
 
 export async function syncSaveUserProfile(user: UserProfile): Promise<void> {
   try {
-    await setDoc(doc(db, COLLECTIONS.USERS, user.id), user, { merge: true });
+    const clean = sanitizeForFirestore(user);
+    await setDoc(doc(db, COLLECTIONS.USERS, user.id), clean, { merge: true });
   } catch (err) {
     console.error('Lỗi khi lưu Hồ sơ người dùng lên Firestore:', err);
     throw err;

@@ -14,15 +14,18 @@ import {
   Sparkles,
   Link as LinkIcon,
   Star,
-  FileText
+  FileText,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { MemoryPost, UserProfile } from '../../types';
+import { compressImageFile } from '../../utils/imageUtils';
 
 interface CreateMemoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: UserProfile;
-  onCreateMemory: (post: Omit<MemoryPost, 'id' | 'likes' | 'comments' | 'isLiked'>) => void;
+  onCreateMemory: (post: Omit<MemoryPost, 'id' | 'likes' | 'comments' | 'isLiked'>) => Promise<void> | void;
 }
 
 export const CreateMemoryModal: React.FC<CreateMemoryModalProps> = ({
@@ -46,6 +49,9 @@ export const CreateMemoryModal: React.FC<CreateMemoryModalProps> = ({
   const [urlInput, setUrlInput] = useState('');
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string>('');
 
   // Suggested clan photo library
   const presetPhotos = [
@@ -56,23 +62,33 @@ export const CreateMemoryModal: React.FC<CreateMemoryModalProps> = ({
     { url: 'https://images.unsplash.com/photo-1533727937480-da3a97967e11?auto=format&fit=crop&q=80&w=1200', title: 'Thắp hương tưởng nhớ' },
   ];
 
-  // Handle local file uploads (1 or multiple files)
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle local file uploads with automatic compression (avoids Firestore 1MB quota exceeded)
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    Array.from(files).forEach((file: File) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setSelectedImages((prev) => [...prev, event.target!.result as string]);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+    setIsCompressing(true);
+    setSaveError('');
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+    try {
+      const compressedList: string[] = [];
+      const fileArray = Array.from(files) as File[];
+      for (const file of fileArray) {
+        if (!file.type.startsWith('image/')) continue;
+        const compressedBase64 = await compressImageFile(file, 800, 0.75);
+        compressedList.push(compressedBase64);
+      }
+      if (compressedList.length > 0) {
+        setSelectedImages((prev) => [...prev, ...compressedList]);
+      }
+    } catch (err: any) {
+      console.error('Lỗi khi nén ảnh kỷ niệm:', err);
+      setSaveError('Có lỗi khi xử lý tệp ảnh. Vui lòng thử lại với ảnh dung lượng nhỏ hơn.');
+    } finally {
+      setIsCompressing(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -97,30 +113,41 @@ export const CreateMemoryModal: React.FC<CreateMemoryModalProps> = ({
     setCoverImageIndex(index);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !content.trim()) return;
+    if (!title.trim() || !content.trim() || isSaving || isCompressing) return;
 
-    // Arrange images so the cover image is first
-    let finalImages = [...selectedImages];
-    if (selectedImages.length > 0 && coverImageIndex < selectedImages.length) {
-      const cover = finalImages[coverImageIndex];
-      finalImages = [cover, ...finalImages.filter((_, i) => i !== coverImageIndex)];
+    setIsSaving(true);
+    setSaveError('');
+
+    try {
+      // Sắp xếp ảnh: ảnh bìa lên đầu tiên
+      let finalImages = [...selectedImages];
+      if (selectedImages.length > 0 && coverImageIndex < selectedImages.length) {
+        const cover = finalImages[coverImageIndex];
+        finalImages = [cover, ...finalImages.filter((_, i) => i !== coverImageIndex)];
+      }
+
+      await onCreateMemory({
+        title: title.trim(),
+        subtitle: subtitle.trim() || '',
+        content: content.trim(),
+        authorName: currentUser.fullName || 'Thành viên dòng họ',
+        authorAvatar: currentUser.avatarUrl || '',
+        date: date || new Date().toISOString().split('T')[0],
+        images: finalImages.filter((img) => Boolean(img && img.trim())),
+        location: location.trim() || '',
+        tags: [],
+      });
+
+      // Đóng modal sau khi xuất bản
+      onClose();
+    } catch (err: any) {
+      console.error('Lỗi khi xuất bản bài viết:', err);
+      setSaveError(err?.message || 'Có lỗi khi lưu bài viết lên hệ thống. Vui lòng thử lại.');
+    } finally {
+      setIsSaving(false);
     }
-
-    onCreateMemory({
-      title: title.trim(),
-      subtitle: subtitle.trim() || undefined,
-      content: content.trim(),
-      authorName: currentUser.fullName,
-      authorAvatar: currentUser.avatarUrl,
-      date,
-      images: finalImages,
-      location: location.trim() || undefined,
-      tags: [],
-    });
-
-    onClose();
   };
 
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
@@ -378,6 +405,14 @@ export const CreateMemoryModal: React.FC<CreateMemoryModalProps> = ({
                 </div>
               )}
 
+              {/* Compression loading indicator */}
+              {isCompressing && (
+                <div className="flex items-center gap-2 p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-amber-800 dark:text-amber-200 text-xs animate-pulse">
+                  <RefreshCw className="w-4 h-4 animate-spin shrink-0 text-amber-600" />
+                  <span>Đang tự động nén & tối ưu hóa ảnh để tương thích lưu trữ đám mây...</span>
+                </div>
+              )}
+
               {/* Selected Images Grid with Cover Star & Delete */}
               {selectedImages.length > 0 ? (
                 <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 pt-1">
@@ -484,6 +519,14 @@ export const CreateMemoryModal: React.FC<CreateMemoryModalProps> = ({
                 className="w-full px-4 py-3 bg-stone-50 dark:bg-stone-800 border border-stone-300 dark:border-stone-700 rounded-2xl text-stone-900 dark:text-stone-100 font-serif leading-relaxed text-sm focus:outline-none focus:border-amber-600 focus:ring-1 focus:ring-amber-500 transition-all placeholder:font-sans placeholder:text-xs"
               />
             </div>
+
+            {/* Error Message */}
+            {saveError && (
+              <div className="p-3 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-2xl text-red-600 dark:text-red-300 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+                <span className="flex-1">{saveError}</span>
+              </div>
+            )}
           </form>
         )}
 
@@ -506,18 +549,28 @@ export const CreateMemoryModal: React.FC<CreateMemoryModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl font-semibold text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-800 text-xs"
+              disabled={isSaving}
+              className="px-4 py-2 rounded-xl font-semibold text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-800 text-xs disabled:opacity-50"
             >
               Hủy bỏ
             </button>
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={!title.trim() || !content.trim()}
+              disabled={!title.trim() || !content.trim() || isSaving || isCompressing}
               className="px-5 py-2 rounded-xl bg-amber-700 hover:bg-amber-800 disabled:opacity-40 text-white font-bold shadow-md flex items-center gap-1.5 active:scale-95 transition-all text-xs"
             >
-              <Send className="w-4 h-4" />
-              <span>Xuất bản bài báo</span>
+              {isSaving ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Đang lưu lên hệ thống...</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4" />
+                  <span>Xuất bản bài báo</span>
+                </>
+              )}
             </button>
           </div>
         </div>
